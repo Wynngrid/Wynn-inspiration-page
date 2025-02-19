@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process'); // We'll use exec to run the scrapper command
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -39,9 +39,13 @@ app.get('/api/inspirations', async (req, res) => {
     const cookiePath = process.env.PINTEREST_COOKIES || '';
     const cookieOption = cookiePath ? ` --cookie ${cookiePath}` : '';
 
+    // Define a temporary folder for scraping
+    const tempFolder = 'temp-search';
+    
     // Build the command string.
-    // We use a temporary folder "temp-search" since our goal is to capture JSON output.
-    const command = `pinterest-dl search "${searchQuery}" temp-search -l ${limit} --json${cookieOption}`;
+    // Even though "temp-search" is specified as the output folder,
+    // we'll delete it after capturing the JSON data.
+    const command = `pinterest-dl search "${searchQuery}" ${tempFolder} -l ${limit} --json${cookieOption}`;
 
     console.log(`Running command: ${command}`);
     // Execute the command
@@ -50,20 +54,31 @@ app.get('/api/inspirations', async (req, res) => {
     
     let jsonData;
 
-    // First, check if a JSON file was created (e.g., temp-search.json in the current working directory)
-    const jsonFilePath = path.join(process.cwd(), 'temp-search.json');
+    // Check if a JSON file was created (e.g., temp-search.json in the current working directory)
+    const jsonFilePath = path.join(process.cwd(), `${tempFolder}.json`);
     if (fs.existsSync(jsonFilePath)) {
       console.log(`Found JSON file at: ${jsonFilePath}`);
       const fileData = fs.readFileSync(jsonFilePath, 'utf8');
       jsonData = JSON.parse(fileData);
     } else {
-      // Otherwise, try to extract JSON from stdout using a regex.
+      // Otherwise, attempt to extract JSON from stdout using a regex.
       const match = output.match(/(\[.*\]|\{.*\})/s);
       if (!match) {
         throw new Error("No JSON data found in the output");
       }
       const jsonPart = match[1].trim();
       jsonData = JSON.parse(jsonPart);
+    }
+    
+    // Clean up: delete the temporary folder and JSON file if they exist
+    const tempFolderPath = path.join(process.cwd(), tempFolder);
+    if (fs.existsSync(tempFolderPath)) {
+      fs.rmSync(tempFolderPath, { recursive: true, force: true });
+      console.log(`Deleted temporary folder: ${tempFolderPath}`);
+    }
+    if (fs.existsSync(jsonFilePath)) {
+      fs.unlinkSync(jsonFilePath);
+      console.log(`Deleted temporary JSON file: ${jsonFilePath}`);
     }
     
     // Respond with the JSON data
